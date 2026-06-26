@@ -1,3 +1,41 @@
-glance-aaai/
+# IDE
+.idea
+.vscode/
+
+# Claude Code
 .claude/
-.idea/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+*.egg
+.eggs/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.so
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Environments
+.env
+.venv/
+venv/
+env/
+
+# macOS
+.DS_Store
+
+# Subproject originals (vendored source, not our code)
+GLANCE/glance-aaai/
+
+# Outputs / results (generated at runtime)
+TABCF/counterfactual_results/
+GLANCE/examples/results.csv
+GLANCE/examples/errors.log
