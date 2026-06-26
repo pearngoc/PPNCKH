@@ -1,0 +1,14 @@
+{
+     "param_grid": {
+       "dataset": ["adult"],
+       "model": ["xgb"],
+       "method": ["GLANCE"],
+       "local_cf_generator": ["Dice"],
+       "clustering_method": ["KMeans"],
+       "n_initial_clusters": [100],
+       "n_final_clusters": [4],
+       "n_local_counterfactuals": [10],
+       "IM__cluster_action_choice_algo": ["max-eff"]
+     },
+     "exclude_combinations": []
+   }
