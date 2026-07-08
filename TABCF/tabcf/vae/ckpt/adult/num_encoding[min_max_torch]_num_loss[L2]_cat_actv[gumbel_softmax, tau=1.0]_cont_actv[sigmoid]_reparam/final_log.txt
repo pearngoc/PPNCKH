@@ -1,0 +1,1 @@
+epoch: 3999, beta = 0.000008, Train MSE: 0.000175, Train CE:0.000070, Train KL:1.446995, Val MSE:0.000165, Val CE:0.000071, Train ACC:0.999743, Val ACC:0.999631
