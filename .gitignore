@@ -39,3 +39,14 @@ GLANCE/glance-aaai/
 TABCF/counterfactual_results/
 GLANCE/examples/results.csv
 GLANCE/examples/errors.log
+
+# Trained outlier model artifacts
+outlier_model_eval_negative_only_pyod.pkl
+outlier_model_eval_pyod.joblib
+outlier_model_eval_target_only_pyod.joblib
+X_cat_test.npy
+X_cat_train.npy
+X_num_test.npy
+X_num_train.npy
+y_test.npy
+y_train.npy
