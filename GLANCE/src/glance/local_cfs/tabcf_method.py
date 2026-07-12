@@ -122,6 +122,10 @@ class TabCFMethod(LocalCounterfactualMethod):
 
                 cf_row = self._decode_z_to_row(z_cf.detach())
                 if cf_row is not None:
+                    if self.feat_to_vary != "all":
+                        for col in self.num_cols + self.cat_cols:
+                            if col not in self.feat_to_vary:
+                                cf_row[col] = row[col]
                     all_rows.append(cf_row)
 
         if not all_rows:

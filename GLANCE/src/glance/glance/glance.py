@@ -37,7 +37,6 @@ class GLANCE(GlobalCounterfactualMethod):
         final_clusters: int = 10,
         num_local_counterfactuals: int = 5,
         heuristic_weights: Tuple[float, float] = (0.5, 0.5),
-        # latent_heuristic_weight: float = 0.0,
         alternative_merges: bool = True,
         random_seed: int = 13,
         verbose=True,
@@ -48,7 +47,6 @@ class GLANCE(GlobalCounterfactualMethod):
         self.final_clusters = final_clusters
         self.num_local_counterfactuals = num_local_counterfactuals
         self.heuristic_weights = heuristic_weights
-        # self.latent_heuristic_weight = latent_heuristic_weight
         self.alternative_merges = alternative_merges
         self.random_seed = random_seed
         self.verbose = verbose
@@ -84,7 +82,7 @@ class GLANCE(GlobalCounterfactualMethod):
         feat_to_vary: Optional[Union[List[str], str]] = "all",
         numeric_features_names: Optional[List[str]] = None,
         categorical_features_names: Optional[List[str]] = None,
-        # latent_encoder: Optional[Callable[[pd.DataFrame], np.ndarray]] = None,
+        latent_encoder: Optional[Callable[[pd.DataFrame], np.ndarray]] = None,
         clustering_method: Union[ClusteringMethod, Literal["KMeans","Agglomerative",'GMM']] = "KMeans",
         cf_generator: Union[
             LocalCounterfactualMethod,
@@ -129,8 +127,9 @@ class GLANCE(GlobalCounterfactualMethod):
             self.n_categorical_most_frequent = rs__n_categorical_most_frequent
         else:
             self.n_categorical_most_frequent = 20
-        
-        # self.latent_encoder = latent_encoder
+
+                #comment line
+        self.latent_encoder = latent_encoder
         self.cf_generator = _decide_local_cf_method(
             method=cf_generator,
             model=self.model,
@@ -188,11 +187,13 @@ class GLANCE(GlobalCounterfactualMethod):
 
         # Compute latent centroids if latent_encoder provided (Contribution 2)
         # latent_centroids: Optional[Dict[int, np.ndarray]] = None
-        # if self.latent_encoder is not None:
-        #     latent_centroids = {}
-        #     for i, cluster_instances in clusters.items():
-        #         z_matrix = self.latent_encoder(cluster_instances)  # [N, latent_dim]
-        #         latent_centroids[i] = z_matrix.mean(axis=0)        # [latent_dim]
+                #comment line
+        latent_centroids = None
+        if self.latent_encoder is not None:
+            latent_centroids = {}
+            for i, cluster_instances in clusters.items():
+                z_matrix = self.latent_encoder(cluster_instances)  # [N, latent_dim]
+                latent_centroids[i] = z_matrix.mean(axis=0)        # [latent_dim]
 
         cluster_explanations, cluster_expl_actions, explanations_centroid = (
             generate_cluster_centroid_explanations(
@@ -204,31 +205,33 @@ class GLANCE(GlobalCounterfactualMethod):
             )
         )
         # print all counterfactuals generated per cluster
-        print("\n" + "="*70)
-        print("COUNTERFACTUALS SINH RA CHO TỪNG CỤM (100 cụm ban đầu)")
-        print("="*70)
-        for i in sorted(cluster_explanations.keys()):
-            cfs = cluster_explanations[i]
-            actions = cluster_expl_actions[i]
-            centroid = cluster_centroids[i]
-            print(f"\n--- Cụm {i} | Kích thước: {clusters[i].shape[0]} người | Số CF: {cfs.shape[0]} ---")
-            print(f"  Centroid:")
-            print(centroid.to_string(index=False))
-            print(f"  Counterfactuals:")
-            print(cfs.to_string())
-            print(f"  Actions (delta):")
-            actions_display = actions.copy()
-            actions_display[self.numerical_features_names] = actions_display[self.numerical_features_names].applymap(
-                lambda x: 0.0 if abs(x) < 1e-6 else x
-            )
-            print(actions_display.to_string())
-        print("="*70 + "\n")
+        # print("\n" + "="*70)
+        # print("COUNTERFACTUALS SINH RA CHO TỪNG CỤM (100 cụm ban đầu)")
+        # print("="*70)
+        # for i in sorted(cluster_explanations.keys()):
+        #     cfs = cluster_explanations[i]
+        #     actions = cluster_expl_actions[i]
+        #     centroid = cluster_centroids[i]
+        #     print(f"\n--- Cụm {i} | Kích thước: {clusters[i].shape[0]} người | Số CF: {cfs.shape[0]} ---")
+        #     print(f"  Centroid:")
+        #     print(centroid.to_string(index=False))
+        #     print(f"  Counterfactuals:")
+        #     print(cfs.to_string())
+        #     print(f"  Actions (delta):")
+        #     actions_display = actions.copy()
+        #     actions_display[self.numerical_features_names] = actions_display[self.numerical_features_names].applymap(
+        #         lambda x: 0.0 if abs(x) < 1e-6 else x
+        #     )
+        #     print(actions_display.to_string())
+        # print("="*70 + "\n")
 
         # delete clusters with no explanations
         clusters = {i: cluster for i, cluster in clusters.items() if i in cluster_explanations.keys()}
         cluster_centroids = {i: cluster for i, cluster in cluster_centroids.items() if i in cluster_explanations.keys()}
-        # if latent_centroids is not None:
-        #     latent_centroids = {i: z for i, z in latent_centroids.items() if i in cluster_explanations.keys()}
+                #comment line
+
+        if latent_centroids is not None:
+            latent_centroids = {i: z for i, z in latent_centroids.items() if i in cluster_explanations.keys()}
 
         while len(clusters) > self.final_clusters:
             cluster1, cluster2 = _find_candidate_clusters(
@@ -237,8 +240,9 @@ class GLANCE(GlobalCounterfactualMethod):
                 explanations_centroid=explanations_centroid,
                 heuristic_weights=self.heuristic_weights,
                 dist_func_dataframe=self.dist_func_dataframe,
-                # latent_centroids=latent_centroids,
-                # latent_weight=self.latent_heuristic_weight,
+                        #comment line
+
+                latent_centroids=latent_centroids,
             )
 
             _merge_clusters(
@@ -253,13 +257,15 @@ class GLANCE(GlobalCounterfactualMethod):
                 categorical_features_names=self.categorical_features_names,
             )
 
-            # if latent_centroids is not None:
-            #     merged_z = np.vstack([
-            #         latent_centroids[cluster1].reshape(1, -1),
-            #         latent_centroids[cluster2].reshape(1, -1),
-            #     ])
-            #     latent_centroids[cluster2] = merged_z.mean(axis=0)
-            #     del latent_centroids[cluster1]
+        #comment line
+
+            if latent_centroids is not None:
+                merged_z = np.vstack([
+                    latent_centroids[cluster1].reshape(1, -1),
+                    latent_centroids[cluster2].reshape(1, -1),
+                ])
+                latent_centroids[cluster2] = merged_z.mean(axis=0)
+                del latent_centroids[cluster1]
 
         clusters_res, total_eff, total_cost = cluster_results(
             model=self.model,
@@ -284,11 +290,12 @@ class GLANCE(GlobalCounterfactualMethod):
             format_glance_output(
                 cluster_stats=clusters_res,
                 categorical_columns = self.categorical_features_names)
-#             print_results(
-#                 clusters_stats=clusters_res,
-#                 total_effectiveness=total_eff,
-#                 total_cost=total_cost,
-#             )
+                        #comment line
+            print_results(
+                clusters_stats=clusters_res,
+                total_effectiveness=total_eff,
+                total_cost=total_cost,
+            )
             
         eff, cost, chosen_actions, final_costs = cumulative(
             self.model,
@@ -846,36 +853,38 @@ def cluster_results(
             effectiveness_threshold=effectiveness_threshold,
             num_min_cost=num_min_cost,
         )
-        
+
+                #comment line
+
+#         assert len(action_set) == len(clusters)
+#         action_list_for_bias = list(action_set)
+#         ret_clusters = {i: {
+#             "action": action_list_for_bias[idx],
+#             "effectiveness": np.nan,
+#             "cost": np.nan,
+#             "feature_type_bias": compute_feature_type_bias(
+#                 action_list_for_bias[idx], numerical_features_names, categorical_features_names
+#             ),
+#         } for idx, i in enumerate(clusters.keys())}
+#
+#         n_individuals_total = instances.shape[0]
+#         total_effectiveness_percentage = n_flipped_total / n_individuals_total
+#         total_mean_recourse_cost = total_recourse_cost_sum / n_flipped_total
+#
+#         return ret_clusters, total_effectiveness_percentage, total_mean_recourse_cost
         assert len(action_set) == len(clusters)
-        action_list_for_bias = list(action_set)
+        actions_iter = iter(action_set)
         ret_clusters = {i: {
-            "action": action_list_for_bias[idx],
+            "action": next(actions_iter),
             "effectiveness": np.nan,
             "cost": np.nan,
-            "feature_type_bias": compute_feature_type_bias(
-                action_list_for_bias[idx], numerical_features_names, categorical_features_names
-            ),
-        } for idx, i in enumerate(clusters.keys())}
+        } for i in clusters.keys()}
 
         n_individuals_total = instances.shape[0]
         total_effectiveness_percentage = n_flipped_total / n_individuals_total
         total_mean_recourse_cost = total_recourse_cost_sum / n_flipped_total
 
         return ret_clusters, total_effectiveness_percentage, total_mean_recourse_cost
-        # assert len(action_set) == len(clusters)
-        # actions_iter = iter(action_set)
-        # ret_clusters = {i: {
-        #     "action": next(actions_iter),
-        #     "effectiveness": np.nan,
-        #     "cost": np.nan,
-        # } for i in clusters.keys()}
-        #
-        # n_individuals_total = instances.shape[0]
-        # total_effectiveness_percentage = n_flipped_total / n_individuals_total
-        # total_mean_recourse_cost = total_recourse_cost_sum / n_flipped_total
-        #
-        # return ret_clusters, total_effectiveness_percentage, total_mean_recourse_cost
     elif cluster_action_choice_algo == "eff-thres-hybrid":
         n_flipped_total, total_recourse_cost_sum, action_set = _select_actions_eff_thres_hybrid(
             model=model,
@@ -889,35 +898,35 @@ def cluster_results(
             max_n_actions_full_combinations=max_n_actions_full_combinations,
         )
         
+#         assert len(action_set) == len(clusters)
+#         action_list_for_bias = list(action_set)
+#         ret_clusters = {i: {
+#             "action": action_list_for_bias[idx],
+#             "effectiveness": np.nan,
+#             "cost": np.nan,
+#             "feature_type_bias": compute_feature_type_bias(
+#                 action_list_for_bias[idx], numerical_features_names, categorical_features_names
+#             ),
+#         } for idx, i in enumerate(clusters.keys())}
+#
+#         n_individuals_total = instances.shape[0]
+#         total_effectiveness_percentage = n_flipped_total / n_individuals_total
+#         total_mean_recourse_cost = total_recourse_cost_sum / n_flipped_total
+#
+#         return ret_clusters, total_effectiveness_percentage, total_mean_recourse_cost
         assert len(action_set) == len(clusters)
-        action_list_for_bias = list(action_set)
+        actions_iter = iter(action_set)
         ret_clusters = {i: {
-            "action": action_list_for_bias[idx],
+            "action": next(actions_iter),
             "effectiveness": np.nan,
             "cost": np.nan,
-            "feature_type_bias": compute_feature_type_bias(
-                action_list_for_bias[idx], numerical_features_names, categorical_features_names
-            ),
-        } for idx, i in enumerate(clusters.keys())}
+        } for i in clusters.keys()}
 
         n_individuals_total = instances.shape[0]
         total_effectiveness_percentage = n_flipped_total / n_individuals_total
         total_mean_recourse_cost = total_recourse_cost_sum / n_flipped_total
 
         return ret_clusters, total_effectiveness_percentage, total_mean_recourse_cost
-        # assert len(action_set) == len(clusters)
-        # actions_iter = iter(action_set)
-        # ret_clusters = {i: {
-        #     "action": next(actions_iter),
-        #     "effectiveness": np.nan,
-        #     "cost": np.nan,
-        # } for i in clusters.keys()}
-        #
-        # n_individuals_total = instances.shape[0]
-        # total_effectiveness_percentage = n_flipped_total / n_individuals_total
-        # total_mean_recourse_cost = total_recourse_cost_sum / n_flipped_total
-        #
-        # return ret_clusters, total_effectiveness_percentage, total_mean_recourse_cost
     else:
         n_individuals_total = sum(cluster.shape[0] for cluster in clusters.values())
 
@@ -951,9 +960,9 @@ def format_glance_output(
                     output_string += f"{Style.BRIGHT}{column_name}{Style.RESET_ALL} = {Fore.RED}{value[0]}{Fore.RESET} \n"
             else:
                 if value[0] != '-':
-                    if value[0] > 0 :
+                    if value[0] > 1e-6:
                         output_string += f"{Style.BRIGHT}{column_name}{Style.RESET_ALL} +{Fore.RED}{value[0]}{Fore.RESET} \n"
-                    elif value[0] < 0 :
+                    elif value[0] < -1e-6:
                         output_string += f"{Style.BRIGHT}{column_name}{Style.RESET_ALL} {Fore.RED}{value[0]}{Fore.RESET} \n"
         print(output_string)
         print(f"{Style.BRIGHT}Effectiveness:{Style.RESET_ALL} {Fore.GREEN}{row['effectiveness']:.2%}{Fore.RESET}\t{Style.BRIGHT}Cost:{Style.RESET_ALL} {Fore.MAGENTA}{row['cost']:.2f}{Fore.RESET}\t{Style.BRIGHT}Feature Biased:{Style.RESET_ALL} {Fore.GREEN}{row['feature_type_bias']:.2%}{Fore.RESET}")
@@ -1009,8 +1018,9 @@ def _find_candidate_clusters(
     explanations_centroid: Dict[int, pd.DataFrame],
     heuristic_weights: Tuple[float, float],
     dist_func_dataframe: Callable[[pd.DataFrame, pd.DataFrame], pd.Series],
-    # latent_centroids: Optional[Dict[int, np.ndarray]] = None,
-    # latent_weight: float = 0.0,
+            #comment line
+    latent_centroids: Optional[Dict[int, np.ndarray]] = None,
+    latent_weight: float = 0.0,
 ) -> Tuple[int, int]:
     clusters_idx = clusters.keys()
 
@@ -1043,17 +1053,19 @@ def _find_candidate_clusters(
         + heuristic_weights[1] * explanations_centroid_distances
     )
 
-    # if latent_centroids is not None and latent_weight > 0.0:
-    #     others_idx = [i for i in clusters_idx if i != smallest_cluster]
-    #     z_small = latent_centroids[smallest_cluster]
-    #     latent_dists = np.array([
-    #         np.linalg.norm(z_small - latent_centroids[i]) for i in others_idx
-    #     ])
-    #     max_lat = latent_dists.max()
-    #     if max_lat > 0:
-    #         latent_dists = latent_dists / max_lat
-    #     latent_dist_series = pd.Series(latent_dists, index=merge_heuristic_values.index)
-    #     merge_heuristic_values = merge_heuristic_values + latent_weight * latent_dist_series
+        #comment line
+
+    if latent_centroids is not None and latent_weight > 0.0:
+        others_idx = [i for i in clusters_idx if i != smallest_cluster]
+        z_small = latent_centroids[smallest_cluster]
+        latent_dists = np.array([
+            np.linalg.norm(z_small - latent_centroids[i]) for i in others_idx
+        ])
+        max_lat = latent_dists.max()
+        if max_lat > 0:
+            latent_dists = latent_dists / max_lat
+        latent_dist_series = pd.Series(latent_dists, index=merge_heuristic_values.index)
+        merge_heuristic_values = merge_heuristic_values + latent_weight * latent_dist_series
 
     candidates = [
         (smallest_cluster, cluster1)
@@ -1089,8 +1101,9 @@ def _generate_clusters(
 
 def _one_hot_encode(X: pd.DataFrame, categorical_columns: List[str]) -> pd.DataFrame:
     transformer = ColumnTransformer(
-        [("ohe", OneHotEncoder(sparse=False), categorical_columns)],
-        #[("ohe", OneHotEncoder(sparse_output=False), categorical_columns)],
+            #comment line
+        #[("ohe", OneHotEncoder(sparse=False), categorical_columns)],
+        [("ohe", OneHotEncoder(sparse_output=False), categorical_columns)],
         remainder="passthrough",
     )
     ret = transformer.fit_transform(X)

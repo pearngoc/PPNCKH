@@ -19,6 +19,9 @@ from glance.local_cfs.nearest_neighbor import NearestNeighborMethod, NearestNeig
 from glance.local_cfs.random_sampling import RandomSampling
 from glance.utils.metadata_requests import _decide_local_cf_method
 from glance.counterfactual_costs import build_dist_func_dataframe
+from glance.metrics.recourse_metrics import (
+    feasibility_score, dominant_feature_concentration, action_diversity,
+)
 
 from utils import load_models, preprocess_datasets, preprocess_datasets_kfold
 
@@ -57,6 +60,9 @@ def run_experiment(
     costs = []
     times = []
     final_sizes = []
+    feasibilities = []
+    concentrations = []
+    diversities = []
 
     start_time = time.time()
     if method == "GLANCE":
@@ -102,7 +108,23 @@ def run_experiment(
             eff = n_flipped / affected.shape[0]
             mean_cost = cost / n_flipped
             n_global_cfs = n_final_clusters
-            
+
+            # ── New quality metrics ───────────────────────────────────────────
+            train_ref = data.drop(columns=[target_name])
+            fold_actions = [stats['action'] for stats in clusters_res.values()]
+            fold_feasibility = float(np.mean([
+                feasibility_score(a, train_ref, _numfeats, _catfeats)
+                for a in fold_actions
+            ]))
+            fold_concentration = float(np.mean([
+                dominant_feature_concentration(a, train_ref, _numfeats, _catfeats)
+                for a in fold_actions
+            ]))
+            fold_diversity = action_diversity(fold_actions, _numfeats, _catfeats)
+            feasibilities.append(fold_feasibility)
+            concentrations.append(fold_concentration)
+            diversities.append(fold_diversity)
+
             end_time = time.time()
             total_time = end_time - start_time
 
@@ -164,11 +186,22 @@ def run_experiment(
             directory.mkdir(parents=True, exist_ok=True)
             cfs.to_csv(directory / f"fold_{i}.csv")
 
-    eff = f"{round(100*np.mean(effs), 2)} ± {round(100*np.std(effs), 2)}"
-    mean_cost = f"{round(np.mean(costs), 2)} ± {round(np.std(costs), 2)}"
+    def _fmt(values):
+        return f"{round(np.mean(values), 4)} ± {round(np.std(values), 4)}"
+
+    eff        = f"{round(100*np.mean(effs), 2)} ± {round(100*np.std(effs), 2)}"
+    mean_cost  = f"{round(np.mean(costs), 2)} ± {round(np.std(costs), 2)}"
     total_time = f"{round(np.mean(times), 2)} ± {round(np.std(times), 2)}"
-    size = f"{round(np.mean(final_sizes), 2)} ± {round(np.std(final_sizes), 2)}"
-    return eff, mean_cost, size, total_time
+    size       = f"{round(np.mean(final_sizes), 2)} ± {round(np.std(final_sizes), 2)}"
+
+    if feasibilities:
+        feasibility    = _fmt(feasibilities)
+        concentration  = _fmt(concentrations)
+        diversity      = _fmt(diversities)
+    else:
+        feasibility = concentration = diversity = "N/A"
+
+    return eff, mean_cost, size, total_time, feasibility, concentration, diversity
 
 
 def main():
@@ -184,7 +217,7 @@ def main():
         "-o",
         "--output",
         type=str,
-        required=False,
+        default="/Users/ngocle/Projects/Learning/GLANCE/examples/results.csv",
         help="Specify file name to write results to.",
     )
     parser.add_argument(
@@ -214,12 +247,16 @@ def main():
 
     signature = inspect.signature(run_experiment)
     run_experiment_param_names = list(signature.parameters.keys())
-    input_columns = run_experiment_param_names
-    output_columns = run_experiment_param_names + [
+    im_params = {p for p in run_experiment_param_names if p.startswith('IM__') or p.startswith('ΙΜ__')}
+    input_columns = [p for p in run_experiment_param_names if p not in im_params]
+    output_columns = input_columns + [
         "Effectiveness",
         "Cost",
         "Size",
         "Elapsed Time",
+        "Feasibility Score",
+        "Dominant Concentration",
+        "Action Diversity",
     ]
 
     results = pd.DataFrame(columns=output_columns)
@@ -236,10 +273,10 @@ def main():
             continue
         assert all(p_name in run_experiment_param_names for p_name in params.keys())
         if args.stop_on_error:
-            eff, cost, size, elapsed = run_experiment(**copy.deepcopy(params))
+            eff, cost, size, elapsed, feasibility, concentration, diversity = run_experiment(**copy.deepcopy(params))
         else:
             try:
-                eff, cost, size, elapsed = run_experiment(**copy.deepcopy(params))
+                eff, cost, size, elapsed, feasibility, concentration, diversity = run_experiment(**copy.deepcopy(params))
             except Exception as e:
                 print(e)
                 print(traceback.format_exc())
@@ -247,12 +284,10 @@ def main():
                 continue
 
         result = pd.DataFrame(columns=output_columns)
-        result.loc[0] = params
-        result.loc[0, ["Effectiveness", "Cost", "Size", "Elapsed Time"]] = [
-            eff,
-            cost,
-            size,
-            elapsed,
+        result.loc[0] = {k: v for k, v in params.items() if k in set(input_columns)}
+        result.loc[0, ["Effectiveness", "Cost", "Size", "Elapsed Time",
+                        "Feasibility Score", "Dominant Concentration", "Action Diversity"]] = [
+            eff, cost, size, elapsed, feasibility, concentration, diversity,
         ]
         results = pd.concat([results, result], ignore_index=True)
         results.to_csv(args.output, index=False)

@@ -19,6 +19,8 @@ import os
 import json
 import argparse
 
+import csv
+
 import numpy as np
 import pandas as pd
 import torch
@@ -26,8 +28,9 @@ from sklearn.preprocessing import MinMaxScaler, OneHotEncoder
 from sklearn.compose import ColumnTransformer
 
 # ── Paths ──────────────────────────────────────────────────────────────────
-GLANCE_SRC = os.path.join(os.path.dirname(__file__), 'src')
-TABCF_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'TABCF'))
+THIS_DIR   = os.path.dirname(os.path.abspath(__file__))
+GLANCE_SRC = os.path.join(THIS_DIR, 'src')
+TABCF_ROOT = os.path.abspath(os.path.join(THIS_DIR, '..', 'TABCF'))
 
 sys.path.insert(0, GLANCE_SRC)
 sys.path.insert(0, TABCF_ROOT)
@@ -36,6 +39,9 @@ os.chdir(TABCF_ROOT)  # TABCF uses relative paths like 'data/adult/...'
 
 from glance.local_cfs.tabcf_method import TabCFMethod
 from glance.glance.glance import GLANCE
+from glance.metrics.recourse_metrics import (
+    feasibility_score, dominant_feature_concentration, action_diversity,
+)
 
 from tabcf.vae.model import BBMLPCLF, Decoder_model, Encoder_model_Z
 from tabcf.latent_utils import split_num_cat_target, recover_data
@@ -60,10 +66,9 @@ def main():
     parser.add_argument('--final-clusters',   type=int, default=4)
     parser.add_argument('--n-local-cfs',      type=int, default=10,
                         help='Local CFs per cluster centroid')
-    parser.add_argument('--latent-weight',    type=float, default=0.5,
-                        help='Weight for latent-space distance in merge heuristic (0 = disabled)')
     parser.add_argument('--max-iter',         type=int, default=5000,
                         help='Gradient descent iterations per CF')
+
     args = parser.parse_args()
 
     # ── Load dataset info ───────────────────────────────────────────────────
@@ -141,6 +146,11 @@ def main():
 
     idx_name_mapping = {int(k): v for k, v in info['idx_name_mapping'].items()}
 
+    # ── Immutable / non-actionable features ────────────────────────────────
+    IMMUTABLE = {'age', 'native.country', 'race', 'sex', 'marital.status'}
+    feat_to_vary = [c for c in num_cols + cat_cols if c not in IMMUTABLE]
+    print(f"Actionable features ({len(feat_to_vary)}): {feat_to_vary}")
+
     # ── Fit TabCFMethod ──────────────────────────────────────────────────────
     print("Fitting TabCFMethod...")
     tabcf = TabCFMethod()
@@ -157,6 +167,7 @@ def main():
         input_encoded_categorical_feature_indexes=cat_feature_indexes,
         num_cols=num_cols,
         cat_cols=cat_cols,
+        feat_to_vary=feat_to_vary,
         device=DEVICE,
         max_iter=args.max_iter,
         lr=0.05,
@@ -185,8 +196,9 @@ def main():
     print(f"Affected instances: {len(affected)}")
 
     # ── Fit and run GLANCE ───────────────────────────────────────────────────
+    import time
     print(f"Running GLANCE (initial={args.initial_clusters}, final={args.final_clusters}, "
-          f"local_cfs={args.n_local_cfs}, latent_weight={args.latent_weight})...")
+          f"local_cfs={args.n_local_cfs})...")
 
     train_for_glance = train_df[feature_cols + ['target']]
 
@@ -195,20 +207,22 @@ def main():
         initial_clusters=args.initial_clusters,
         final_clusters=args.final_clusters,
         num_local_counterfactuals=args.n_local_cfs,
-        latent_heuristic_weight=args.latent_weight,
         verbose=True,
     )
+
+    _t0 = time.time()
     glance.fit(
         X=train_for_glance.drop(columns=['target']),
         y=train_for_glance['target'],
         train_dataset=train_for_glance,
+        feat_to_vary=feat_to_vary,
         cf_generator=tabcf,
-        latent_encoder=tabcf.encode_instances if args.latent_weight > 0 else None,
         numeric_features_names=num_cols,
         categorical_features_names=cat_cols,
     )
 
     eff, cost, clusters, clusters_res, chosen_actions, final_costs = glance.explain_group(affected)
+    elapsed = round(time.time() - _t0, 2)
 
     # ── Print results ─────────────────────────────────────────────────────────
     print(f"\n{'='*60}")
@@ -221,7 +235,7 @@ def main():
         print(f"--- Action {idx+1} (cluster size: {stats['size']}) ---")
         action = stats['action']
         for col in num_cols:
-            if action[col] != 0:
+            if abs(action[col]) > 1e-6:
                 print(f"  {col}: {action[col]:+.2f}")
         for col in cat_cols:
             if action[col] != '-':
@@ -230,6 +244,57 @@ def main():
               f"Cost: {stats['cost']:.4f}  "
               f"Feature-Type Bias: {stats['feature_type_bias']:.3f}")
         print()
+
+    # ── Compute new metrics ───────────────────────────────────────────────────
+    actions = [stats['action'] for stats in clusters_res.values()]
+    feat_std_ref = train_df[num_cols + cat_cols]
+
+    per_action_feasibility = [
+        feasibility_score(a, feat_std_ref, num_cols, cat_cols) for a in actions
+    ]
+    per_action_concentration = [
+        dominant_feature_concentration(a, feat_std_ref, num_cols, cat_cols) for a in actions
+    ]
+    diversity = action_diversity(actions, num_cols, cat_cols)
+
+    mean_feasibility    = float(np.mean(per_action_feasibility))
+    mean_concentration  = float(np.mean(per_action_concentration))
+
+    print(f"Feasibility Score (mean):          {mean_feasibility:.4f}  (↑ higher = more feasible)")
+    print(f"Dominant Concentration (mean):     {mean_concentration:.4f}  (↓ lower = more balanced)")
+    print(f"Action Diversity (Jaccard-based):  {diversity:.4f}  (↑ higher = more diverse)")
+
+    # ── Save to CSV ───────────────────────────────────────────────────────────
+    csv_path = os.path.join(THIS_DIR, 'examples', 'results.csv')
+    FIELDNAMES = [
+        'dataset', 'model', 'method', 'local_cf_generator',
+        'clustering_method', 'n_initial_clusters', 'n_final_clusters', 'n_local_counterfactuals',
+        'Effectiveness', 'Cost', 'Size', 'Elapsed Time',
+        'Feasibility Score', 'Dominant Concentration', 'Action Diversity',
+    ]
+    write_header = not os.path.exists(csv_path)
+    with open(csv_path, 'a', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=FIELDNAMES)
+        if write_header:
+            writer.writeheader()
+        writer.writerow({
+            'dataset':               DATANAME,
+            'model':                 'bbmlp',
+            'method':                'TabGLANCE',
+            'local_cf_generator':    'TabCF',
+            'clustering_method':     'KMeans',
+            'n_initial_clusters':    args.initial_clusters,
+            'n_final_clusters':      args.final_clusters,
+            'n_local_counterfactuals': args.n_local_cfs,
+            'Effectiveness':         round(eff / len(affected) * 100, 2),
+            'Cost':                  round(cost / eff, 4) if eff > 0 else None,
+            'Size':                  args.final_clusters,
+            'Elapsed Time':          elapsed,
+            'Feasibility Score':     round(mean_feasibility, 4),
+            'Dominant Concentration': round(mean_concentration, 4),
+            'Action Diversity':      round(diversity, 4),
+        })
+    print(f"\nResults saved → {csv_path}")
 
 
 if __name__ == '__main__':

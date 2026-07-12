@@ -12,6 +12,8 @@ Usage:
 """
 import sys
 import os
+import csv
+import datetime
 import json
 import argparse
 
@@ -31,6 +33,9 @@ sys.path.insert(0, TABCF_ROOT)
 os.chdir(TABCF_ROOT)  # TABCF data lives here
 
 from glance.glance.glance import GLANCE
+from glance.metrics.recourse_metrics import (
+    feasibility_score, dominant_feature_concentration, action_diversity,
+)
 from tabcf.vae.model import BBMLPCLF
 from utils_train import preprocess
 
@@ -164,7 +169,7 @@ def main():
         print(f"--- Action {idx+1} (cluster size: {stats['size']}) ---")
         action = stats['action']
         for col in num_cols:
-            if action[col] != 0:
+            if abs(action[col]) > 1e-6:
                 print(f"  {col}: {action[col]:+.2f}")
         for col in cat_cols:
             if action[col] != '-':
@@ -173,6 +178,55 @@ def main():
               f"Cost: {stats['cost']:.4f}  "
               f"Feature-Type Bias: {stats['feature_type_bias']:.3f}")
         print()
+
+    # ── Compute new metrics ───────────────────────────────────────────────────
+    actions = [stats['action'] for stats in clusters_res.values()]
+    feat_std_ref = train_df[num_cols + cat_cols]
+
+    per_action_feasibility = [
+        feasibility_score(a, feat_std_ref, num_cols, cat_cols) for a in actions
+    ]
+    per_action_concentration = [
+        dominant_feature_concentration(a, feat_std_ref, num_cols, cat_cols) for a in actions
+    ]
+    diversity = action_diversity(actions, num_cols, cat_cols)
+
+    mean_feasibility   = float(np.mean(per_action_feasibility))
+    mean_concentration = float(np.mean(per_action_concentration))
+
+    print(f"Feasibility Score (mean):          {mean_feasibility:.4f}  (↑ higher = more feasible)")
+    print(f"Dominant Concentration (mean):     {mean_concentration:.4f}  (↓ lower = more balanced)")
+    print(f"Action Diversity (Jaccard-based):  {diversity:.4f}  (↑ higher = more diverse)")
+
+    # ── Save to CSV ───────────────────────────────────────────────────────────
+    csv_path = os.path.normpath(
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), 'experiment_results.csv')
+    )
+    write_header = not os.path.exists(csv_path)
+    with open(csv_path, 'a', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=[
+            'timestamp', 'method', 'generator', 'dataset',
+            'initial_clusters', 'final_clusters', 'n_local_cfs',
+            'effectiveness', 'mean_cost',
+            'feasibility_score', 'dominant_concentration', 'action_diversity',
+        ])
+        if write_header:
+            writer.writeheader()
+        writer.writerow({
+            'timestamp':              datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'method':                 'GLANCE',
+            'generator':              args.generator,
+            'dataset':                DATANAME,
+            'initial_clusters':       args.initial_clusters,
+            'final_clusters':         args.final_clusters,
+            'n_local_cfs':            args.n_local_cfs,
+            'effectiveness':          round(eff / len(affected), 4),
+            'mean_cost':              round(cost / eff, 4) if eff > 0 else None,
+            'feasibility_score':      round(mean_feasibility, 4),
+            'dominant_concentration': round(mean_concentration, 4),
+            'action_diversity':       round(diversity, 4),
+        })
+    print(f"\nResults saved → {csv_path}")
 
 
 if __name__ == '__main__':

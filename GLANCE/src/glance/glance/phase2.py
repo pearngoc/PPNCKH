@@ -1,6 +1,7 @@
 from typing import Dict, List, Tuple
 
 import pandas as pd
+from tqdm import tqdm
 
 from ..base import LocalCounterfactualMethod
 from ..utils.action import extract_actions_pandas
@@ -13,12 +14,11 @@ def generate_cluster_centroid_explanations(
     numerical_features_names: List[str],
     categorical_features_names: List[str],
 ) -> Tuple[Dict[int, pd.DataFrame], Dict[int, pd.DataFrame], Dict[int, pd.DataFrame]]:
-    cluster_explanations = {
-        i: cf_generator.explain_instances(
+    cluster_explanations = {}
+    for i, _ in tqdm(cluster_centroids.items(), desc="Generating CFs per cluster", total=len(cluster_centroids)):
+        cluster_explanations[i] = cf_generator.explain_instances(
             cluster_centroids[i], num_local_counterfactuals
         )
-        for i, _ in cluster_centroids.items()
-    }
     returned_requested = True
     empty_cfs_idxs = []
     for i, cfs in cluster_explanations.items():

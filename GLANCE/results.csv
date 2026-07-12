@@ -1,0 +1,2 @@
+timestamp,method,generator,dataset,initial_clusters,final_clusters,n_local_cfs,effectiveness,mean_cost,feasibility_score,dominant_concentration,action_diversity
+2026-07-12 16:15:41,TabGLANCE,TabCF,adult,100,4,10,0.8992,10.5139,0.5593,0.4626,0.4194
