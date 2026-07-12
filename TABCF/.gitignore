@@ -4,13 +4,19 @@
 /synthetic/
 /images/
 **/__pycache__/
-**/ckpt/
 **/ckpt_old/
 **/ckpt_large_beta/
 
 
 **/*.pt
 **/*.npy
+**/*.pkl
+
+# Keep essential tracked artifacts
+!**/decoder.pt
+!**/encoder.pt
+!**/model.pt
+!**/black_box_mlp_hidden_16.pkl
 
 /counterfactual_results/
 /counterfactual_results_final/
